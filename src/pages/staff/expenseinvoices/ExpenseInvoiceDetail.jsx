@@ -70,12 +70,16 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     doc.setTextColor(0)
     doc.text('VST SHAKTI', margin, 30)
 
-    // TAX INVOICE (center)
+    // TAX INVOICE (center) — explicitly bold
     doc.setFontSize(13)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0)
     doc.text('TAX INVOICE', pageWidth / 2, 30, { align: 'center' })
 
-    // CREDIT MEMO (right)
+    // CREDIT MEMO (right) — explicitly bold
     doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0)
     doc.text('CREDIT MEMO', pageWidth - margin, 30, { align: 'right' })
 
     doc.setDrawColor(150)
@@ -123,8 +127,9 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
         [`Name      : ${VST.name}`, 'Name      :'],
         [`Address   : ${VST.address}`, 'Address   :'],
         [`             ${VST.city}`, ''],
-        [`Mobile No : ${VST.gstin}  GSTIN : ${VST.gstin}`, 'Mobile No :'],
-        [`FSSAI No  :                    ${VST.state}        ${VST.stateCode}`, `State     :                State Code:`],
+        [`Mobile No :`, 'Mobile No :'],
+        [`GSTIN     : ${VST.gstin}`, `State     :                State Code:`],
+        [`FSSAI No  :              ${VST.state}    ${VST.stateCode}`, ''],
       ],
       headStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 7 },
       bodyStyles: { fontSize: 7 },
@@ -246,15 +251,18 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     })
     cell(cx, subY, totalColW, subRowH, '', 'center', false)
 
-    // ---- Helper to format slab value ----
-    function fmt(n) { return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }) }
+    // ---- Helper to format slab value — max 2 decimal places ----
+    function fmt(n) {
+      return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    }
 
     // ---- Rows 2–4: data ----
     const dataRows = [
       {
         label: '',
+        // Unlabeled row: shows S%/C% half-values per active slab (matches reference)
         values: GST_RATES.map(r => [fmt(slabs[r].igst / 2), fmt(slabs[r].igst / 2)]),
-        total: fmt(igstTotal / 2), // half shown in this unlabeled row (matches reference)
+        total: fmt(igstTotal),
       },
       {
         label: 'SGst+CGst',
@@ -263,7 +271,8 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
       },
       {
         label: 'IGst',
-        values: GST_RATES.map(r => [fmt(slabs[r].igst), '']),
+        // IGst row: full IGST per slab in S column, C column blank (interstate — no split)
+        values: GST_RATES.map(r => [fmt(slabs[r].igst), '0.00']),
         total: fmt(igstTotal),
       },
     ]
