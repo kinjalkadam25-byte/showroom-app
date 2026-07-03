@@ -6,8 +6,9 @@ import QuotationList from './quotations/QuotationList'
 import InvoiceList from './invoices/InvoiceList'
 import ReminderList from './reminders/ReminderList'
 import LedgerList from './ledger/LedgerList'
+import OutstandingReport from './reports/OutstandingReport'
 
-const TABS = ['Customers', 'Inventory', 'Quotations', 'Invoices', 'Reminders', 'Ledger']
+const TABS = ['Customers', 'Inventory', 'Quotations', 'Invoices', 'Reminders', 'Ledger', 'Outstanding']
 
 export default function StaffDashboard() {
   const { signOut, user } = useAuth()
@@ -21,6 +22,7 @@ export default function StaffDashboard() {
       case 'Invoices':   return <InvoiceList />
       case 'Reminders':  return <ReminderList />
       case 'Ledger':     return <LedgerList />
+      case 'Outstanding': return <OutstandingReport />
       default:           return <p className="text-gray-400 text-sm">Coming soon.</p>
     }
   }
