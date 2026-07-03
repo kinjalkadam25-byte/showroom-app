@@ -1,6 +1,8 @@
+import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { amountToWordsINR } from '../../../lib/amountToWords'
 
 const STATUS_STYLES = {
   draft:    'bg-gray-100 text-gray-600',
@@ -10,15 +12,39 @@ const STATUS_STYLES = {
   expired:  'bg-yellow-100 text-yellow-700',
 }
 
+const GST_RATES = [5, 12, 18, 28]
+
 export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }) {
-  const items       = quotation.quotation_items || []
-  const subtotal    = items.reduce((s, i) => s + Number(i.total), 0)
-  const discount    = Number(quotation.discount    || 0)
-  const gstPercent  = Number(quotation.gst_percent ?? 18)
-  const gstAmount   = Number(quotation.gst_amount  || 0)
-  const cgst        = gstAmount / 2
-  const sgst        = gstAmount / 2
-  const afterDiscount = Math.max(0, subtotal - discount)
+  const [dealer, setDealer] = useState(null)
+
+  useEffect(() => {
+    supabase.from('dealer_settings').select('*').limit(1).single()
+      .then(({ data }) => setDealer(data))
+  }, [])
+
+  const items = quotation.quotation_items || []
+
+  const taxableTotal = items.reduce((s, i) => s + Number(i.taxable_amount || 0), 0)
+  const gstTotal      = items.reduce((s, i) => s + Number(i.cgst_amount || 0) + Number(i.sgst_amount || 0) + Number(i.igst_amount || 0), 0)
+  const otherCharges  = Number(quotation.other_charges || 0)
+  const roundOff      = Number(quotation.round_off || 0)
+  const netAmount     = Number(quotation.total_amount || (taxableTotal + gstTotal + otherCharges + roundOff))
+
+  // Slab matrix: sum taxable/cgst/sgst/igst per GST rate across line items
+  const slabs = GST_RATES.reduce((acc, rate) => {
+    acc[rate] = { taxable: 0, cgst: 0, sgst: 0, igst: 0 }
+    return acc
+  }, {})
+  items.forEach(item => {
+    const rate = Number(item.gst_percent) || 0
+    if (slabs[rate]) {
+      slabs[rate].taxable += Number(item.taxable_amount || 0)
+      slabs[rate].cgst    += Number(item.cgst_amount || 0)
+      slabs[rate].sgst    += Number(item.sgst_amount || 0)
+      slabs[rate].igst    += Number(item.igst_amount || 0)
+    }
+  })
+  const slabGstTotal = GST_RATES.reduce((s, r) => s + slabs[r].cgst + slabs[r].sgst + slabs[r].igst, 0)
 
   async function setStatus(status) {
     await supabase.from('quotations').update({ status }).eq('id', quotation.id)
@@ -26,90 +52,190 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
   }
 
   function downloadPDF() {
-    const doc      = new jsPDF()
+    const doc = new jsPDF()
     const customer = quotation.customers
+    const pageWidth = doc.internal.pageSize.getWidth()
 
-    doc.setFontSize(22)
+    // ---------- Header ----------
+    doc.setFontSize(16)
     doc.setFont('helvetica', 'bold')
-    doc.text('QUOTATION', 14, 22)
+    doc.text(dealer?.business_name || 'Business Name', pageWidth / 2, 15, { align: 'center' })
 
-    doc.setFontSize(10)
+    doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(80)
-    doc.text(`No: ${quotation.quotation_number}`, 14, 32)
-    doc.text(`Date: ${new Date(quotation.created_at).toLocaleDateString('en-IN')}`, 14, 38)
-    if (quotation.valid_until) doc.text(`Valid Until: ${quotation.valid_until}`, 14, 44)
+    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 21, { align: 'center' })
 
-    if (customer) {
-      doc.setTextColor(0)
-      doc.setFont('helvetica', 'bold')
-      doc.text('Prepared For:', 120, 32)
-      doc.setFont('helvetica', 'normal')
-      doc.text(customer.name || '', 120, 38)
-      if (customer.phone) doc.text(customer.phone, 120, 44)
-      if (customer.email) doc.text(customer.email, 120, 50)
-    }
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0)
+    doc.text('QUOTATION', pageWidth / 2, 30, { align: 'center' })
 
+    doc.setDrawColor(180)
+    doc.line(10, 34, pageWidth - 10, 34)
+
+    // ---------- Two-column party details ----------
+    let y = 40
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(0)
+
+    const leftX = 12
+    const rightX = 108
+
+    doc.text(`Quotation No : ${quotation.quotation_number}`, leftX, y)
+    doc.text(`Name : ${customer?.name || ''}`, rightX, y)
+    y += 6
+    doc.text(`Quotation Date : ${new Date(quotation.created_at).toLocaleDateString('en-IN')}`, leftX, y)
+    doc.text(`Address : ${quotation.customer_address || ''}`, rightX, y)
+    y += 6
+    doc.text(`State : ${dealer?.state || ''}`, leftX, y)
+    doc.text(`Mobile No : ${quotation.customer_phone || ''}`, rightX, y)
+    y += 6
+    doc.text(`State Code : ${dealer?.state_code || ''}`, leftX, y)
+    doc.text(`GSTIN : ${quotation.customer_gstin || ''}`, rightX, y)
+    y += 6
+    doc.text(`GSTIN : ${dealer?.gstin || ''}`, leftX, y)
+    doc.text(`PAN No : ${quotation.customer_pan || ''}`, rightX, y)
+    y += 6
+    doc.text('', leftX, y)
+    doc.text(`State : ${quotation.customer_state || ''}`, rightX, y)
+    y += 6
+    doc.text(`State Code : ${quotation.customer_state_code || ''}`, rightX, y)
+
+    y += 6
+    doc.setDrawColor(180)
+    doc.line(10, y, pageWidth - 10, y)
+    y += 4
+
+    // ---------- Line items table ----------
     autoTable(doc, {
-      startY: 60,
-      head: [['#', 'Description', 'Qty', 'Unit Price (Rs.)', 'Amount (Rs.)']],
-      body: items.map((item, i) => [
-        i + 1,
-        item.description,
-        item.quantity,
-        Number(item.unit_price).toLocaleString('en-IN'),
-        Number(item.total).toLocaleString('en-IN'),
-      ]),
-      headStyles: { fillColor: [24, 24, 27], fontSize: 9 },
-      bodyStyles: { fontSize: 9 },
+      startY: y,
+      head: [['Sr No', 'Particulars', 'HSN', 'Qty', 'Rate', 'Total', 'Disc%', 'Taxable Amt', 'GST%', 'GST Amt', 'Total']],
+      body: items.map((item, i) => {
+        const gross = Number(item.quantity) * Number(item.unit_price)
+        const gstAmt = Number(item.cgst_amount || 0) + Number(item.sgst_amount || 0) + Number(item.igst_amount || 0)
+        return [
+          i + 1,
+          item.description,
+          item.hsn_code || '',
+          item.quantity,
+          Number(item.unit_price).toLocaleString('en-IN'),
+          gross.toLocaleString('en-IN'),
+          `${Number(item.discount_percent || 0)}%`,
+          Number(item.taxable_amount || 0).toLocaleString('en-IN'),
+          `${Number(item.gst_percent || 0)}%`,
+          gstAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 }),
+          Number(item.total).toLocaleString('en-IN'),
+        ]
+      }),
+      headStyles: { fillColor: [24, 24, 27], fontSize: 7 },
+      bodyStyles: { fontSize: 7 },
       columnStyles: {
-        0: { cellWidth: 10 },
-        2: { halign: 'center' },
-        3: { halign: 'right' },
+        0: { cellWidth: 8 },
+        3: { halign: 'center' },
         4: { halign: 'right' },
+        5: { halign: 'right' },
+        6: { halign: 'center' },
+        7: { halign: 'right' },
+        8: { halign: 'center' },
+        9: { halign: 'right' },
+        10: { halign: 'right' },
       },
     })
 
-    let y = doc.lastAutoTable.finalY + 10
-    doc.setFontSize(10)
-    doc.setTextColor(0)
+    let cursorY = doc.lastAutoTable.finalY + 6
+
+    // ---------- GST slab matrix ----------
+    autoTable(doc, {
+      startY: cursorY,
+      head: [['GST Slab', ...GST_RATES.map(r => `${r}%`), 'Total']],
+      body: [
+        ['Taxable', ...GST_RATES.map(r => slabs[r].taxable.toLocaleString('en-IN', { maximumFractionDigits: 0 })), taxableTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })],
+        ['SGST+CGST', ...GST_RATES.map(r => (slabs[r].cgst + slabs[r].sgst).toLocaleString('en-IN', { maximumFractionDigits: 0 })), (gstTotal - GST_RATES.reduce((s, r) => s + slabs[r].igst, 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 })],
+        ['IGST', ...GST_RATES.map(r => slabs[r].igst.toLocaleString('en-IN', { maximumFractionDigits: 0 })), GST_RATES.reduce((s, r) => s + slabs[r].igst, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })],
+      ],
+      headStyles: { fillColor: [80, 80, 80], fontSize: 7 },
+      bodyStyles: { fontSize: 7 },
+      columnStyles: { 0: { cellWidth: 24 } },
+      margin: { right: pageWidth / 2 },
+      tableWidth: pageWidth / 2 - 15,
+    })
+
+    // ---------- Totals box (right side, next to slab matrix) ----------
+    const totalsX = pageWidth / 2 + 5
+    let totalsY = cursorY + 6
+    doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
+    doc.setTextColor(0)
 
-    doc.text('Subtotal:', 120, y)
-    doc.text(`Rs.${subtotal.toLocaleString('en-IN')}`, 195, y, { align: 'right' })
-    y += 7
+    const totalsRows = [
+      ['Total Amount', taxableTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
+      ['GST', gstTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
+      ['Other Charges', otherCharges.toLocaleString('en-IN')],
+      ['Round Off', roundOff.toLocaleString('en-IN')],
+    ]
+    totalsRows.forEach(([label, val]) => {
+      doc.text(label, totalsX, totalsY)
+      doc.text(val, pageWidth - 12, totalsY, { align: 'right' })
+      totalsY += 6
+    })
+    doc.setFont('helvetica', 'bold')
+    doc.text('Net Amount', totalsX, totalsY)
+    doc.text(netAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 }), pageWidth - 12, totalsY, { align: 'right' })
 
-    if (discount > 0) {
-      doc.text('Discount:', 120, y)
-      doc.text(`-Rs.${discount.toLocaleString('en-IN')}`, 195, y, { align: 'right' })
-      y += 7
-    }
+    cursorY = Math.max(doc.lastAutoTable.finalY, totalsY) + 10
 
-    doc.text('Taxable Amount:', 120, y)
-    doc.text(`Rs.${afterDiscount.toLocaleString('en-IN')}`, 195, y, { align: 'right' })
-    y += 8
+    // ---------- Amount in words ----------
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.text('Amount (in words):', 12, cursorY)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Rs. ${amountToWordsINR(netAmount)} Only`, 55, cursorY)
+    cursorY += 8
 
-    doc.setTextColor(80)
-    doc.text(`CGST (${gstPercent / 2}%):`, 120, y)
-    doc.text(`Rs.${cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, y, { align: 'right' })
-    y += 6
-    doc.text(`SGST (${gstPercent / 2}%):`, 120, y)
-    doc.text(`Rs.${sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, y, { align: 'right' })
-    y += 8
+    doc.setDrawColor(180)
+    doc.line(10, cursorY, pageWidth - 10, cursorY)
+    cursorY += 6
 
+    // ---------- Declaration + Terms (two columns) ----------
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.text('Declaration', 12, cursorY)
+    doc.text('Terms & Conditions', 108, cursorY)
+    cursorY += 5
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(60)
+    const declLines = doc.splitTextToSize(dealer?.declaration_text || '', 90)
+    const termsLines = doc.splitTextToSize(dealer?.terms_text || '', 90)
+    doc.text(declLines, 12, cursorY)
+    doc.text(termsLines, 108, cursorY)
+
+    cursorY += Math.max(declLines.length, termsLines.length) * 4 + 6
+
+    // ---------- Bank details ----------
     doc.setTextColor(0)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.text('Total:', 120, y)
-    doc.text(`Rs.${Number(quotation.total_amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, y, { align: 'right' })
-    y += 10
+    doc.setFontSize(8)
+    doc.text('Bank Details', 12, cursorY)
+    cursorY += 5
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.text(`Bank Name: ${dealer?.bank_name || ''}`, 12, cursorY)
+    cursorY += 4.5
+    doc.text(`IFSC Code: ${dealer?.ifsc_code || ''}`, 12, cursorY)
+    cursorY += 4.5
+    doc.text(`Account No: ${dealer?.account_no || ''}`, 12, cursorY)
 
-    if (quotation.notes) {
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(9)
-      doc.setTextColor(100)
-      doc.text(`Notes: ${quotation.notes}`, 14, y)
-    }
+    // ---------- Signatory ----------
+    doc.setFontSize(8)
+    doc.text('Receiver Signatory', 60, cursorY + 20, { align: 'center' })
+    doc.setFont('helvetica', 'bold')
+    doc.text(`For ${dealer?.business_name || ''}`, 150, cursorY + 5, { align: 'center' })
+    doc.setFont('helvetica', 'normal')
+    doc.text('Authorised Signatory', 150, cursorY + 20, { align: 'center' })
 
     doc.save(`${quotation.quotation_number}.pdf`)
   }
@@ -138,7 +264,6 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
       </div>
 
       <div className="max-w-3xl space-y-4">
-        {/* Header info */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5">
           <div className="flex items-start justify-between">
             <div>
@@ -156,32 +281,33 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
           {quotation.customers && (
             <div className="mt-4 pt-4 border-t border-gray-100 text-sm text-gray-600 space-y-0.5">
               <p className="font-medium text-gray-900">{quotation.customers.name}</p>
-              {quotation.customers.phone && <p>{quotation.customers.phone}</p>}
-              {quotation.customers.email && <p>{quotation.customers.email}</p>}
+              {quotation.customer_phone && <p>{quotation.customer_phone}</p>}
+              {quotation.customer_gstin && <p>GSTIN: {quotation.customer_gstin}</p>}
             </div>
           )}
         </div>
 
-        {/* Line items */}
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
+          <table className="w-full text-xs">
             <thead className="bg-gray-50 text-gray-500 text-left">
               <tr>
-                <th className="px-5 py-3 font-medium">Description</th>
-                <th className="px-5 py-3 font-medium text-center">Qty</th>
-                <th className="px-5 py-3 font-medium text-right">Unit Price</th>
-                <th className="px-5 py-3 font-medium text-right">Amount</th>
+                <th className="px-3 py-2 font-medium">Description</th>
+                <th className="px-3 py-2 font-medium">HSN</th>
+                <th className="px-3 py-2 font-medium text-center">Qty</th>
+                <th className="px-3 py-2 font-medium text-center">Disc%</th>
+                <th className="px-3 py-2 font-medium text-center">GST%</th>
+                <th className="px-3 py-2 font-medium text-right">Total</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {items.map(item => (
                 <tr key={item.id}>
-                  <td className="px-5 py-3 text-gray-900">{item.description}</td>
-                  <td className="px-5 py-3 text-center text-gray-600">{item.quantity}</td>
-                  <td className="px-5 py-3 text-right text-gray-600">
-                    ₹{Number(item.unit_price).toLocaleString('en-IN')}
-                  </td>
-                  <td className="px-5 py-3 text-right font-medium text-gray-900">
+                  <td className="px-3 py-2 text-gray-900">{item.description}</td>
+                  <td className="px-3 py-2 text-gray-500 font-mono">{item.hsn_code}</td>
+                  <td className="px-3 py-2 text-center text-gray-600">{item.quantity}</td>
+                  <td className="px-3 py-2 text-center text-gray-600">{item.discount_percent}%</td>
+                  <td className="px-3 py-2 text-center text-gray-600">{item.gst_percent}%</td>
+                  <td className="px-3 py-2 text-right font-medium text-gray-900">
                     ₹{Number(item.total).toLocaleString('en-IN')}
                   </td>
                 </tr>
@@ -191,39 +317,20 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
 
           <div className="px-5 py-4 border-t border-gray-100 space-y-2 text-sm">
             <div className="flex justify-between text-gray-600">
-              <span>Subtotal</span>
-              <span>₹{subtotal.toLocaleString('en-IN')}</span>
-            </div>
-            {discount > 0 && (
-              <div className="flex justify-between text-gray-600">
-                <span>Discount</span>
-                <span>-₹{discount.toLocaleString('en-IN')}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-gray-600">
               <span>Taxable Amount</span>
-              <span>₹{afterDiscount.toLocaleString('en-IN')}</span>
+              <span>₹{taxableTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
             </div>
-
-            <div className="border-t border-gray-100 pt-2 space-y-1.5">
-              <div className="flex justify-between text-gray-600">
-                <span>GST ({gstPercent}%)</span>
-                <span>₹{gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex justify-between text-gray-400 text-xs pl-4">
-                <span>CGST ({gstPercent / 2}%)</span>
-                <span>₹{cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex justify-between text-gray-400 text-xs pl-4">
-                <span>SGST ({gstPercent / 2}%)</span>
-                <span>₹{sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-              </div>
+            <div className="flex justify-between text-gray-600">
+              <span>GST</span>
+              <span>₹{gstTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
             </div>
-
             <div className="flex justify-between font-bold text-gray-900 text-base pt-2 border-t border-gray-100">
-              <span>Total</span>
-              <span>₹{Number(quotation.total_amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              <span>Net Amount</span>
+              <span>₹{netAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
             </div>
+            <p className="text-xs text-gray-400 pt-1">
+              {amountToWordsINR(netAmount)} Rupees Only
+            </p>
           </div>
         </div>
 
@@ -234,7 +341,6 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
           </div>
         )}
 
-        {/* Status actions */}
         <div className="bg-white border border-gray-200 rounded-2xl p-5">
           <p className="text-sm font-medium text-gray-700 mb-3">Update Status</p>
           <div className="flex flex-wrap gap-2">
