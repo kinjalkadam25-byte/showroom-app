@@ -187,46 +187,112 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
 
     cursorY = doc.lastAutoTable.finalY + 3
 
-    // ---------- GST slab matrix with S%/C% sub-columns (matching reference) ----------
-    // Header row: Gst | 5% | 12% | 18% | 28% | Total
-    // Sub-row:        S2.5 C2.5 | S6 C6 | S9 C9 | S14 C14
-    // Data row: taxable, then each half
+    // ---------- GST slab matrix — drawn manually because autoTable can't merge cells ----------
+    // Layout matches reference exactly:
+    // Row 0 (header):  [Gst] [  5%  ] [  12%  ] [  18%  ] [  28%  ] [Total]
+    // Row 1 (subhead): [   ] [S2.5|C2.5] [S6|C6] [S9|C9] [S14|C14] [    ]
+    // Row 2 (data):    [   ] [val|val] [val|val] [val|val] [val|val] [val ]
+    // Row 3: SGst+CGst ...
+    // Row 4: IGst ...
 
-    const slabCols = GST_RATES.map(r => `${r}%`)
-    autoTable(doc, {
-      startY: cursorY,
-      ...GRID,
-      head: [
-        ['Gst', ...slabCols, 'Total'],
-        ['', 'S 2.5%', 'C 2.5%', 'S 6%', 'C 6%', 'S 9%', 'C 9%', 'S 14%', 'C 14%', ''],
-      ],
-      body: [
-        [
-          '',
-          ...GST_RATES.map(r => (slabs[r].igst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })),
-          ...GST_RATES.map(r => (slabs[r].igst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })),
-          igstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
-        ],
-        ['SGst+CGst', ...GST_RATES.map(() => '0.00'), '0.00'],
-        ['IGst', ...GST_RATES.map(r => slabs[r].igst.toLocaleString('en-IN', { minimumFractionDigits: 2 })), igstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })],
-      ],
-      headStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontSize: 6, fontStyle: 'bold' },
-      bodyStyles: { fontSize: 6 },
-      margin: { left: margin },
-      tableWidth: (pageWidth - margin * 2) * 0.6,
+    const slabX     = margin
+    const slabW     = (pageWidth - margin * 2) * 0.6
+    const totalsX   = slabX + slabW + 3
+    const totalsW   = (pageWidth - margin * 2) * 0.4 - 3
+
+    // Column widths: [label | 5%(S|C) | 12%(S|C) | 18%(S|C) | 28%(S|C) | total]
+    const labelW  = 18
+    const slabPairW = (slabW - labelW - 18) / 4 // width for each slab pair (S+C)
+    const halfW   = slabPairW / 2
+    const totalColW = 18
+
+    const rowH     = 5.5
+    const subRowH  = 4.5
+    const dataRowH = 4.5
+
+    doc.setDrawColor(150)
+    doc.setLineWidth(0.2)
+    doc.setFontSize(6)
+    doc.setFont('helvetica', 'bold')
+
+    // Helper: draw a cell (border + centered text)
+    function cell(x, y, w, h, text, align = 'center', bold = false) {
+      doc.rect(x, y, w, h)
+      doc.setFont('helvetica', bold ? 'bold' : 'normal')
+      const tx = align === 'center' ? x + w / 2 : align === 'right' ? x + w - 1 : x + 1
+      const ty = y + h / 2 + 1.5
+      doc.text(String(text), tx, ty, { align })
+    }
+
+    // ---- Row 0: merged slab headers ----
+    let rx = slabX
+    cell(rx, cursorY, labelW, rowH, 'Gst', 'center', true)
+    rx += labelW
+    ;[['5%', slabPairW], ['12%', slabPairW], ['18%', slabPairW], ['28%', slabPairW]].forEach(([label, w]) => {
+      cell(rx, cursorY, w, rowH, label, 'center', true)
+      rx += w
+    })
+    cell(rx, cursorY, totalColW, rowH, 'Total', 'center', true)
+
+    // ---- Row 1: S%/C% sub-headers ----
+    const subY = cursorY + rowH
+    rx = slabX
+    cell(rx, subY, labelW, subRowH, '', 'center', false)
+    rx += labelW
+    ;[['S 2.5%', 'C 2.5%'], ['S 6%', 'C 6%'], ['S 9%', 'C 9%'], ['S 14%', 'C 14%']].forEach(([s, c]) => {
+      cell(rx, subY, halfW, subRowH, s, 'center', true)
+      cell(rx + halfW, subY, halfW, subRowH, c, 'center', true)
+      rx += slabPairW
+    })
+    cell(rx, subY, totalColW, subRowH, '', 'center', false)
+
+    // ---- Helper to format slab value ----
+    function fmt(n) { return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }) }
+
+    // ---- Rows 2–4: data ----
+    const dataRows = [
+      {
+        label: '',
+        values: GST_RATES.map(r => [fmt(slabs[r].igst / 2), fmt(slabs[r].igst / 2)]),
+        total: fmt(igstTotal / 2), // half shown in this unlabeled row (matches reference)
+      },
+      {
+        label: 'SGst+CGst',
+        values: GST_RATES.map(() => ['0.00', '0.00']),
+        total: '0.00',
+      },
+      {
+        label: 'IGst',
+        values: GST_RATES.map(r => [fmt(slabs[r].igst), '']),
+        total: fmt(igstTotal),
+      },
+    ]
+
+    let dataY = subY + subRowH
+    dataRows.forEach(row => {
+      rx = slabX
+      cell(rx, dataY, labelW, dataRowH, row.label, 'left', false)
+      rx += labelW
+      row.values.forEach(([s, c]) => {
+        cell(rx, dataY, halfW, dataRowH, s, 'center', false)
+        cell(rx + halfW, dataY, halfW, dataRowH, c, 'center', false)
+        rx += slabPairW
+      })
+      cell(rx, dataY, totalColW, dataRowH, row.total, 'center', false)
+      dataY += dataRowH
     })
 
-    const slabEndY = doc.lastAutoTable.finalY
+    const slabEndY = dataY
 
-    // ---------- Totals box (right side of slab matrix) ----------
+    // ---------- Totals box (right side, drawn as autoTable — no merge issues here) ----------
     autoTable(doc, {
       startY: cursorY,
       ...GRID,
       body: [
         ['TotalAmount', netAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })],
-        ['Disc', `0.00 %    0.00`],
-        ['Other Charges', otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })],
-        ['Round Off  +', roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2 })],
+        ['Disc', '0.00 %    0.00'],
+        ['Other Charges', fmt(otherCharges)],
+        ['Round Off  +', fmt(roundOff)],
         ['Net Amount', netAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })],
       ],
       bodyStyles: { fontSize: 7 },
@@ -234,8 +300,8 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
         if (data.row.index === 4) data.cell.styles.fontStyle = 'bold'
         if (data.column.index === 1) data.cell.styles.halign = 'right'
       },
-      margin: { left: margin + (pageWidth - margin * 2) * 0.6 + 3 },
-      tableWidth: (pageWidth - margin * 2) * 0.4 - 3,
+      margin: { left: totalsX },
+      tableWidth: totalsW,
     })
 
     cursorY = Math.max(slabEndY, doc.lastAutoTable.finalY) + 3
