@@ -225,26 +225,26 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     }
 
     // ---- Row 0: merged slab headers ----
-    let rx = slabX
-    cell(rx, cursorY, labelW, rowH, 'Gst', 'center', true)
-    rx += labelW
+    let cx = slabX
+    cell(cx, cursorY, labelW, rowH, 'Gst', 'center', true)
+    cx += labelW
     ;[['5%', slabPairW], ['12%', slabPairW], ['18%', slabPairW], ['28%', slabPairW]].forEach(([label, w]) => {
-      cell(rx, cursorY, w, rowH, label, 'center', true)
-      rx += w
+      cell(cx, cursorY, w, rowH, label, 'center', true)
+      cx += w
     })
-    cell(rx, cursorY, totalColW, rowH, 'Total', 'center', true)
+    cell(cx, cursorY, totalColW, rowH, 'Total', 'center', true)
 
     // ---- Row 1: S%/C% sub-headers ----
     const subY = cursorY + rowH
-    rx = slabX
-    cell(rx, subY, labelW, subRowH, '', 'center', false)
-    rx += labelW
+    cx = slabX
+    cell(cx, subY, labelW, subRowH, '', 'center', false)
+    cx += labelW
     ;[['S 2.5%', 'C 2.5%'], ['S 6%', 'C 6%'], ['S 9%', 'C 9%'], ['S 14%', 'C 14%']].forEach(([s, c]) => {
-      cell(rx, subY, halfW, subRowH, s, 'center', true)
-      cell(rx + halfW, subY, halfW, subRowH, c, 'center', true)
-      rx += slabPairW
+      cell(cx, subY, halfW, subRowH, s, 'center', true)
+      cell(cx + halfW, subY, halfW, subRowH, c, 'center', true)
+      cx += slabPairW
     })
-    cell(rx, subY, totalColW, subRowH, '', 'center', false)
+    cell(cx, subY, totalColW, subRowH, '', 'center', false)
 
     // ---- Helper to format slab value ----
     function fmt(n) { return Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }) }
@@ -270,15 +270,15 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
 
     let dataY = subY + subRowH
     dataRows.forEach(row => {
-      rx = slabX
-      cell(rx, dataY, labelW, dataRowH, row.label, 'left', false)
-      rx += labelW
+      cx = slabX
+      cell(cx, dataY, labelW, dataRowH, row.label, 'left', false)
+      cx += labelW
       row.values.forEach(([s, c]) => {
-        cell(rx, dataY, halfW, dataRowH, s, 'center', false)
-        cell(rx + halfW, dataY, halfW, dataRowH, c, 'center', false)
-        rx += slabPairW
+        cell(cx, dataY, halfW, dataRowH, s, 'center', false)
+        cell(cx + halfW, dataY, halfW, dataRowH, c, 'center', false)
+        cx += slabPairW
       })
-      cell(rx, dataY, totalColW, dataRowH, row.total, 'center', false)
+      cell(cx, dataY, totalColW, dataRowH, row.total, 'center', false)
       dataY += dataRowH
     })
 
