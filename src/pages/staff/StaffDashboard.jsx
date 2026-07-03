@@ -7,8 +7,9 @@ import InvoiceList from './invoices/InvoiceList'
 import ReminderList from './reminders/ReminderList'
 import LedgerList from './ledger/LedgerList'
 import OutstandingReport from './reports/OutstandingReport'
+import ExpenseInvoiceList from './expenseinvoices/ExpenseInvoiceList'
 
-const TABS = ['Customers', 'Inventory', 'Quotations', 'Invoices', 'Reminders', 'Ledger', 'Outstanding']
+const TABS = ['Customers', 'Inventory', 'Quotations', 'Invoices', 'Reminders', 'Ledger', 'Outstanding', 'Expense Invoices']
 
 export default function StaffDashboard() {
   const { signOut, user } = useAuth()
@@ -23,6 +24,7 @@ export default function StaffDashboard() {
       case 'Reminders':  return <ReminderList />
       case 'Ledger':     return <LedgerList />
       case 'Outstanding': return <OutstandingReport />
+      case 'Expense Invoices': return <ExpenseInvoiceList />
       default:           return <p className="text-gray-400 text-sm">Coming soon.</p>
     }
   }
