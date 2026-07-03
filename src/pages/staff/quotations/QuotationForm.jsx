@@ -8,7 +8,7 @@ function emptyLine() {
   return {
     inventory_id: '',
     description: '',
-    hsn_code: '8432',
+    hsn_code: '',
     quantity: 1,
     unit_price: '',
     discount_percent: 0,
@@ -147,6 +147,10 @@ export default function QuotationForm({ quotation, onBack, onSave }) {
     if (!form.customer_id) { setError('Please select a customer.'); return }
     if (lineItems.some(i => !i.description.trim() || Number(i.unit_price) <= 0)) {
       setError('Each line item needs a description and a price greater than 0.')
+      return
+    }
+    if (lineItems.some(i => !i.hsn_code.trim())) {
+      setError('Each line item needs an HSN code. Select from inventory or enter it manually.')
       return
     }
 
@@ -425,6 +429,7 @@ export default function QuotationForm({ quotation, onBack, onSave }) {
                     <input
                       value={item.hsn_code}
                       onChange={e => updateLineItem(index, 'hsn_code', e.target.value)}
+                      placeholder="HSN"
                       className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900"
                     />
                   </div>

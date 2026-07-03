@@ -54,63 +54,54 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
   function downloadPDF() {
     const doc = new jsPDF()
     const customer = quotation.customers
-    const pageWidth = doc.internal.pageSize.getWidth()
+    const pageWidth  = doc.internal.pageSize.getWidth()
+    const pageHeight = doc.internal.pageSize.getHeight()
+    const margin = 10
+
+    const GRID = { theme: 'grid', styles: { lineColor: [150, 150, 150], lineWidth: 0.2 } }
 
     // ---------- Header ----------
     doc.setFontSize(16)
     doc.setFont('helvetica', 'bold')
-    doc.text(dealer?.business_name || 'Business Name', pageWidth / 2, 15, { align: 'center' })
+    doc.text(dealer?.business_name || 'Business Name', pageWidth / 2, 17, { align: 'center' })
 
     doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(80)
-    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 21, { align: 'center' })
+    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 23, { align: 'center' })
 
-    doc.setFontSize(14)
+    doc.setFontSize(13)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(0)
-    doc.text('QUOTATION', pageWidth / 2, 30, { align: 'center' })
+    doc.text('QUOTATION', pageWidth / 2, 31, { align: 'center' })
 
-    doc.setDrawColor(180)
-    doc.line(10, 34, pageWidth - 10, 34)
+    // ---------- Seller / Buyer details as a bordered grid table ----------
+    // Explicit fixed rows so seller and buyer columns never look interchangeable —
+    // each row is labeled inline, and a header row names whose details are whose.
+    autoTable(doc, {
+      startY: 35,
+      ...GRID,
+      head: [['Seller Details', 'Buyer Details']],
+      body: [
+        [`Quotation No: ${quotation.quotation_number}`, `Name: ${customer?.name || ''}`],
+        [`Quotation Date: ${new Date(quotation.created_at).toLocaleDateString('en-IN')}`, `Address: ${quotation.customer_address || ''}`],
+        [`State: ${dealer?.state || ''}   State Code: ${dealer?.state_code || ''}`, `Mobile No: ${quotation.customer_phone || ''}`],
+        [`GSTIN: ${dealer?.gstin || ''}`, `GSTIN: ${quotation.customer_gstin || '—'}`],
+        [`PAN No: ${dealer?.pan_no || ''}`, `PAN No: ${quotation.customer_pan || '—'}`],
+        ['', `State: ${quotation.customer_state || '—'}   State Code: ${quotation.customer_state_code || '—'}`],
+      ],
+      headStyles: { fillColor: [24, 24, 27], fontSize: 8 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: { 0: { cellWidth: (pageWidth - margin * 2) / 2 }, 1: { cellWidth: (pageWidth - margin * 2) / 2 } },
+      margin: { left: margin, right: margin },
+    })
 
-    // ---------- Two-column party details ----------
-    let y = 40
-    doc.setFontSize(9)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(0)
-
-    const leftX = 12
-    const rightX = 108
-
-    doc.text(`Quotation No : ${quotation.quotation_number}`, leftX, y)
-    doc.text(`Name : ${customer?.name || ''}`, rightX, y)
-    y += 6
-    doc.text(`Quotation Date : ${new Date(quotation.created_at).toLocaleDateString('en-IN')}`, leftX, y)
-    doc.text(`Address : ${quotation.customer_address || ''}`, rightX, y)
-    y += 6
-    doc.text(`State : ${dealer?.state || ''}`, leftX, y)
-    doc.text(`Mobile No : ${quotation.customer_phone || ''}`, rightX, y)
-    y += 6
-    doc.text(`State Code : ${dealer?.state_code || ''}`, leftX, y)
-    doc.text(`GSTIN : ${quotation.customer_gstin || ''}`, rightX, y)
-    y += 6
-    doc.text(`GSTIN : ${dealer?.gstin || ''}`, leftX, y)
-    doc.text(`PAN No : ${quotation.customer_pan || ''}`, rightX, y)
-    y += 6
-    doc.text('', leftX, y)
-    doc.text(`State : ${quotation.customer_state || ''}`, rightX, y)
-    y += 6
-    doc.text(`State Code : ${quotation.customer_state_code || ''}`, rightX, y)
-
-    y += 6
-    doc.setDrawColor(180)
-    doc.line(10, y, pageWidth - 10, y)
-    y += 4
+    let cursorY = doc.lastAutoTable.finalY + 4
 
     // ---------- Line items table ----------
     autoTable(doc, {
-      startY: y,
+      startY: cursorY,
+      ...GRID,
       head: [['Sr No', 'Particulars', 'HSN', 'Qty', 'Rate', 'Total', 'Disc%', 'Taxable Amt', 'GST%', 'GST Amt', 'Total']],
       body: items.map((item, i) => {
         const gross = Number(item.quantity) * Number(item.unit_price)
@@ -118,7 +109,7 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         return [
           i + 1,
           item.description,
-          item.hsn_code || '',
+          item.hsn_code || '—',
           item.quantity,
           Number(item.unit_price).toLocaleString('en-IN'),
           gross.toLocaleString('en-IN'),
@@ -132,7 +123,7 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
       headStyles: { fillColor: [24, 24, 27], fontSize: 7 },
       bodyStyles: { fontSize: 7 },
       columnStyles: {
-        0: { cellWidth: 8 },
+        0: { cellWidth: 9, halign: 'center' },
         3: { halign: 'center' },
         4: { halign: 'right' },
         5: { halign: 'right' },
@@ -142,13 +133,17 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         9: { halign: 'right' },
         10: { halign: 'right' },
       },
+      margin: { left: margin, right: margin },
     })
 
-    let cursorY = doc.lastAutoTable.finalY + 6
+    cursorY = doc.lastAutoTable.finalY + 4
 
-    // ---------- GST slab matrix ----------
+    // ---------- GST slab matrix + Totals box, side by side, both bordered ----------
+    const halfWidth = (pageWidth - margin * 2 - 4) / 2
+
     autoTable(doc, {
       startY: cursorY,
+      ...GRID,
       head: [['GST Slab', ...GST_RATES.map(r => `${r}%`), 'Total']],
       body: [
         ['Taxable', ...GST_RATES.map(r => slabs[r].taxable.toLocaleString('en-IN', { maximumFractionDigits: 0 })), taxableTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })],
@@ -157,85 +152,103 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
       ],
       headStyles: { fillColor: [80, 80, 80], fontSize: 7 },
       bodyStyles: { fontSize: 7 },
-      columnStyles: { 0: { cellWidth: 24 } },
-      margin: { right: pageWidth / 2 },
-      tableWidth: pageWidth / 2 - 15,
+      columnStyles: { 0: { cellWidth: 20 } },
+      margin: { left: margin },
+      tableWidth: halfWidth,
     })
 
-    // ---------- Totals box (right side, next to slab matrix) ----------
-    const totalsX = pageWidth / 2 + 5
-    let totalsY = cursorY + 6
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(0)
+    const slabTableEndY = doc.lastAutoTable.finalY
 
-    const totalsRows = [
-      ['Total Amount', taxableTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
-      ['GST', gstTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
-      ['Other Charges', otherCharges.toLocaleString('en-IN')],
-      ['Round Off', roundOff.toLocaleString('en-IN')],
-    ]
-    totalsRows.forEach(([label, val]) => {
-      doc.text(label, totalsX, totalsY)
-      doc.text(val, pageWidth - 12, totalsY, { align: 'right' })
-      totalsY += 6
+    autoTable(doc, {
+      startY: cursorY,
+      ...GRID,
+      head: [['Summary', '']],
+      body: [
+        ['Total Amount', taxableTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
+        ['GST', gstTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
+        ['Other Charges', otherCharges.toLocaleString('en-IN')],
+        ['Round Off', roundOff.toLocaleString('en-IN')],
+        ['Net Amount', netAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
+      ],
+      headStyles: { fillColor: [80, 80, 80], fontSize: 7 },
+      bodyStyles: { fontSize: 8 },
+      columnStyles: { 0: { fontStyle: 'normal' }, 1: { halign: 'right' } },
+      didParseCell: (data) => {
+        // Bold the Net Amount row to match the reference document's emphasis
+        if (data.row.index === 4 && data.section === 'body') {
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+      margin: { left: margin + halfWidth + 4 },
+      tableWidth: halfWidth,
     })
-    doc.setFont('helvetica', 'bold')
-    doc.text('Net Amount', totalsX, totalsY)
-    doc.text(netAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 }), pageWidth - 12, totalsY, { align: 'right' })
 
-    cursorY = Math.max(doc.lastAutoTable.finalY, totalsY) + 10
+    cursorY = Math.max(slabTableEndY, doc.lastAutoTable.finalY) + 5
 
-    // ---------- Amount in words ----------
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.text('Amount (in words):', 12, cursorY)
-    doc.setFont('helvetica', 'normal')
-    doc.text(`Rs. ${amountToWordsINR(netAmount)} Only`, 55, cursorY)
-    cursorY += 8
+    // ---------- Amount in words (bordered single-row box) ----------
+    autoTable(doc, {
+      startY: cursorY,
+      ...GRID,
+      body: [[`Amount (in words): Rs. ${amountToWordsINR(netAmount)} Only`]],
+      bodyStyles: { fontSize: 8, fontStyle: 'bold' },
+      margin: { left: margin, right: margin },
+    })
 
-    doc.setDrawColor(180)
-    doc.line(10, cursorY, pageWidth - 10, cursorY)
-    cursorY += 6
+    cursorY = doc.lastAutoTable.finalY + 4
 
-    // ---------- Declaration + Terms (two columns) ----------
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.text('Declaration', 12, cursorY)
-    doc.text('Terms & Conditions', 108, cursorY)
-    cursorY += 5
+    // ---------- Declaration + Terms & Conditions (bordered, side by side) ----------
+    autoTable(doc, {
+      startY: cursorY,
+      ...GRID,
+      head: [['Declaration', 'Terms & Conditions']],
+      body: [[dealer?.declaration_text || '', dealer?.terms_text || '']],
+      headStyles: { fillColor: [80, 80, 80], fontSize: 8 },
+      bodyStyles: { fontSize: 7.5 },
+      columnStyles: { 0: { cellWidth: (pageWidth - margin * 2) / 2 }, 1: { cellWidth: (pageWidth - margin * 2) / 2 } },
+      margin: { left: margin, right: margin },
+    })
 
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(7.5)
-    doc.setTextColor(60)
-    const declLines = doc.splitTextToSize(dealer?.declaration_text || '', 90)
-    const termsLines = doc.splitTextToSize(dealer?.terms_text || '', 90)
-    doc.text(declLines, 12, cursorY)
-    doc.text(termsLines, 108, cursorY)
+    cursorY = doc.lastAutoTable.finalY + 4
 
-    cursorY += Math.max(declLines.length, termsLines.length) * 4 + 6
+    // ---------- Bank details (bordered) ----------
+    autoTable(doc, {
+      startY: cursorY,
+      ...GRID,
+      head: [['Bank Details', '']],
+      body: [
+        ['Bank Name', dealer?.bank_name || ''],
+        ['IFSC Code', dealer?.ifsc_code || ''],
+        ['Account No', dealer?.account_no || ''],
+      ],
+      headStyles: { fillColor: [80, 80, 80], fontSize: 8 },
+      bodyStyles: { fontSize: 7.5 },
+      margin: { left: margin, right: margin },
+    })
 
-    // ---------- Bank details ----------
-    doc.setTextColor(0)
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.text('Bank Details', 12, cursorY)
-    cursorY += 5
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(7.5)
-    doc.text(`Bank Name: ${dealer?.bank_name || ''}`, 12, cursorY)
-    cursorY += 4.5
-    doc.text(`IFSC Code: ${dealer?.ifsc_code || ''}`, 12, cursorY)
-    cursorY += 4.5
-    doc.text(`Account No: ${dealer?.account_no || ''}`, 12, cursorY)
+    cursorY = doc.lastAutoTable.finalY + 4
 
-    // ---------- Signatory ----------
-    doc.setFontSize(8)
-    doc.text('Receiver Signatory', 60, cursorY + 20, { align: 'center' })
-    doc.setFont('helvetica', 'bold')
-    doc.text(`For ${dealer?.business_name || ''}`, 150, cursorY + 5, { align: 'center' })
-    doc.setFont('helvetica', 'normal')
-    doc.text('Authorised Signatory', 150, cursorY + 20, { align: 'center' })
+    // ---------- Signatory row (bordered, matching reference's receiver/authorised split) ----------
+    autoTable(doc, {
+      startY: cursorY,
+      ...GRID,
+      body: [
+        ['Receiver Signatory', `For ${dealer?.business_name || ''}`],
+        ['', 'Authorised Signatory'],
+      ],
+      bodyStyles: { fontSize: 8, minCellHeight: 12 },
+      columnStyles: {
+        0: { cellWidth: (pageWidth - margin * 2) / 2, valign: 'bottom' },
+        1: { cellWidth: (pageWidth - margin * 2) / 2, halign: 'center', valign: 'bottom' },
+      },
+      margin: { left: margin, right: margin },
+    })
+
+    cursorY = doc.lastAutoTable.finalY
+
+    // ---------- Outer page border, enclosing the whole document like the reference ----------
+    doc.setDrawColor(120)
+    doc.setLineWidth(0.3)
+    doc.rect(margin - 2, 10, pageWidth - (margin - 2) * 2, Math.min(cursorY + 4, pageHeight - 12) - 10)
 
     doc.save(`${quotation.quotation_number}.pdf`)
   }
