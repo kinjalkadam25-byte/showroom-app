@@ -2,26 +2,28 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
 
 export default function InvoiceForm({ invoice, onBack, onSave }) {
-  const [customers, setCustomers]           = useState([])
+  const [customers, setCustomers]       = useState([])
   const [inventoryItems, setInventoryItems] = useState([])
   const [form, setForm] = useState({
-    customer_id:  invoice?.customer_id  || '',
-    invoice_date: invoice?.invoice_date || new Date().toISOString().slice(0, 10),
-    due_date:     invoice?.due_date     || '',
-    notes:        invoice?.notes        || '',
-    discount:     invoice?.discount     ?? 0,
-    gst_percent:  invoice?.gst_percent  ?? 18,
-    paid:         invoice?.paid         ?? false,
+    customer_id:   invoice?.customer_id   || '',
+    invoice_date:  invoice?.invoice_date  || new Date().toISOString().slice(0, 10),
+    due_date:      invoice?.due_date      || '',
+    notes:         invoice?.notes         || '',
+    discount:      invoice?.discount      ?? 0,
+    paid:          invoice?.paid          ?? false,
+    gst_percent:   invoice?.gst_percent   ?? 18,
+    is_interstate: invoice?.is_interstate ?? false,
   })
   const [lineItems, setLineItems] = useState(
     invoice?.invoice_items?.length > 0
       ? invoice.invoice_items.map(i => ({
           inventory_id: i.inventory_id || '',
           description:  i.description,
+          hsn_code:     i.hsn_code || '8701',
           quantity:     i.quantity,
           unit_price:   i.unit_price,
         }))
-      : [{ inventory_id: '', description: '', quantity: 1, unit_price: '' }]
+      : [{ inventory_id: '', description: '', hsn_code: '8701', quantity: 1, unit_price: '' }]
   )
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
@@ -29,7 +31,7 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
   useEffect(() => {
     Promise.all([
       supabase.from('customers').select('id, name').order('name'),
-      supabase.from('inventory').select('id, make, model, year, price').order('make'),
+      supabase.from('inventory').select('id, make, model, year, price, hsn_code').order('make'),
     ]).then(([{ data: c }, { data: inv }]) => {
       setCustomers(c || [])
       setInventoryItems(inv || [])
@@ -51,6 +53,7 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
             ...next[index],
             description: `${inv.make} ${inv.model} (${inv.year})`,
             unit_price:  inv.price ?? '',
+            hsn_code:    inv.hsn_code || '8701',
           }
         }
       }
@@ -59,7 +62,7 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
   }
 
   function addLineItem() {
-    setLineItems(prev => [...prev, { inventory_id: '', description: '', quantity: 1, unit_price: '' }])
+    setLineItems(prev => [...prev, { inventory_id: '', description: '', hsn_code: '8701', quantity: 1, unit_price: '' }])
   }
 
   function removeLineItem(index) {
@@ -67,13 +70,14 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
     setLineItems(prev => prev.filter((_, i) => i !== index))
   }
 
-  const subtotal      = lineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price) || 0), 0)
+  const subtotal    = lineItems.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price) || 0), 0)
   const afterDiscount = Math.max(0, subtotal - Number(form.discount || 0))
-  const gstPercent    = Number(form.gst_percent || 0)
-  const gstAmount     = afterDiscount * (gstPercent / 100)
-  const cgst          = gstAmount / 2
-  const sgst          = gstAmount / 2
-  const total         = afterDiscount + gstAmount
+  const gstPercent   = Number(form.gst_percent || 0)
+  const gstAmount    = afterDiscount * (gstPercent / 100)
+  const cgstAmount   = form.is_interstate ? 0 : gstAmount / 2
+  const sgstAmount   = form.is_interstate ? 0 : gstAmount / 2
+  const igstAmount   = form.is_interstate ? gstAmount : 0
+  const total        = afterDiscount + gstAmount
 
   async function handleSubmit() {
     if (!form.customer_id) { setError('Please select a customer.'); return }
@@ -86,15 +90,18 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
     setError('')
 
     const payload = {
-      customer_id:  form.customer_id,
-      invoice_date: form.invoice_date,
-      due_date:     form.due_date || null,
-      notes:        form.notes || null,
-      discount:     Number(form.discount || 0),
-      gst_percent:  gstPercent,
-      gst_amount:   gstAmount,
-      total_amount: total,
-      paid:         form.paid,
+      customer_id:   form.customer_id,
+      invoice_date:  form.invoice_date,
+      due_date:      form.due_date || null,
+      notes:         form.notes || null,
+      discount:      Number(form.discount || 0),
+      gst_percent:   gstPercent,
+      cgst_amount:   Number(cgstAmount.toFixed(2)),
+      sgst_amount:   Number(sgstAmount.toFixed(2)),
+      igst_amount:   Number(igstAmount.toFixed(2)),
+      is_interstate: form.is_interstate,
+      total_amount:  Number(total.toFixed(2)),
+      paid:          form.paid,
     }
 
     let invoiceId = invoice?.id
@@ -113,6 +120,7 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
       invoice_id:   invoiceId,
       inventory_id: item.inventory_id || null,
       description:  item.description.trim(),
+      hsn_code:     item.hsn_code || '8701',
       quantity:     Number(item.quantity),
       unit_price:   Number(item.unit_price),
       total:        Number(item.quantity) * Number(item.unit_price),
@@ -177,6 +185,34 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">GST %</label>
+              <input
+                type="number"
+                name="gst_percent"
+                min="0"
+                max="28"
+                step="0.5"
+                value={form.gst_percent}
+                onChange={handleFormChange}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-6">
+              <input
+                type="checkbox"
+                id="is_interstate"
+                name="is_interstate"
+                checked={form.is_interstate}
+                onChange={handleFormChange}
+                className="w-4 h-4 rounded border-gray-300 accent-gray-900"
+              />
+              <label htmlFor="is_interstate" className="text-sm font-medium text-gray-700">
+                Interstate sale (IGST instead of CGST+SGST)
+              </label>
+            </div>
+
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
               <textarea
@@ -216,7 +252,8 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
 
           <div className="grid grid-cols-12 gap-2 mb-2 text-xs font-medium text-gray-500 px-1">
             <span className="col-span-3">Inventory (optional)</span>
-            <span className="col-span-4">Description</span>
+            <span className="col-span-3">Description</span>
+            <span className="col-span-1">HSN</span>
             <span className="col-span-1 text-center">Qty</span>
             <span className="col-span-2">Unit Price</span>
             <span className="col-span-2 text-right">Amount</span>
@@ -240,12 +277,21 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
                   </select>
                 </div>
 
-                <div className="col-span-4">
+                <div className="col-span-3">
                   <input
                     value={item.description}
                     onChange={e => updateLineItem(index, 'description', e.target.value)}
                     placeholder="Description"
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  />
+                </div>
+
+                <div className="col-span-1">
+                  <input
+                    value={item.hsn_code}
+                    onChange={e => updateLineItem(index, 'hsn_code', e.target.value)}
+                    placeholder="8701"
+                    className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900"
                   />
                 </div>
 
@@ -309,31 +355,23 @@ export default function InvoiceForm({ invoice, onBack, onSave }) {
               <span>Taxable Amount</span>
               <span>₹{afterDiscount.toLocaleString('en-IN')}</span>
             </div>
-
-            <div className="flex justify-between items-center text-gray-600 pt-1 border-t border-gray-100">
-              <span className="flex items-center gap-2">
-                GST (%)
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  name="gst_percent"
-                  value={form.gst_percent}
-                  onChange={handleFormChange}
-                  className="w-16 border border-gray-200 rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
-                />
-              </span>
-              <span>₹{gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex justify-between text-gray-500 text-xs pl-4">
-              <span>CGST ({gstPercent / 2}%)</span>
-              <span>₹{cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-            </div>
-            <div className="flex justify-between text-gray-500 text-xs pl-4">
-              <span>SGST ({gstPercent / 2}%)</span>
-              <span>₹{sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-            </div>
-
+            {form.is_interstate ? (
+              <div className="flex justify-between text-gray-600">
+                <span>IGST ({gstPercent}%)</span>
+                <span>₹{igstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between text-gray-600">
+                  <span>CGST ({(gstPercent / 2).toFixed(1)}%)</span>
+                  <span>₹{cgstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>SGST ({(gstPercent / 2).toFixed(1)}%)</span>
+                  <span>₹{sgstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between font-bold text-gray-900 text-base pt-2 border-t border-gray-100">
               <span>Total</span>
               <span>₹{total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>

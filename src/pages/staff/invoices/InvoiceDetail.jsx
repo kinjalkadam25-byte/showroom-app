@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../../../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -17,32 +17,40 @@ const STATUS_STYLES = {
 
 export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
   const [updating, setUpdating] = useState(false)
+  const [dealer, setDealer]     = useState(null)
 
-  const items       = invoice.invoice_items || []
-  const subtotal    = items.reduce((s, i) => s + Number(i.total), 0)
-  const discount    = Number(invoice.discount    || 0)
-  const gstPercent  = Number(invoice.gst_percent ?? 18)
-  const gstAmount   = Number(invoice.gst_amount  || 0)
-  const cgst        = gstAmount / 2
-  const sgst        = gstAmount / 2
-  const afterDiscount = Math.max(0, subtotal - discount)
-  const status      = getStatus(invoice)
+  useEffect(() => {
+    supabase.from('dealer_settings').select('*').limit(1).single()
+      .then(({ data }) => setDealer(data))
+  }, [])
+
+  const items      = invoice.invoice_items || []
+  const subtotal   = items.reduce((s, i) => s + Number(i.total), 0)
+  const discount   = Number(invoice.discount || 0)
+  const cgst       = Number(invoice.cgst_amount || 0)
+  const sgst       = Number(invoice.sgst_amount || 0)
+  const igst       = Number(invoice.igst_amount || 0)
+  const gstPercent = Number(invoice.gst_percent || 18)
+  const status     = getStatus(invoice)
 
   async function togglePaid() {
     setUpdating(true)
-    const markingPaid = !invoice.paid
-    await supabase.from('invoices').update({ paid: markingPaid }).eq('id', invoice.id)
-    if (markingPaid) {
+
+    await supabase.from('invoices').update({ paid: !invoice.paid }).eq('id', invoice.id)
+
+    // Auto-create a ledger entry when marking as paid (not when un-marking)
+    if (!invoice.paid) {
       await supabase.from('ledger_entries').insert({
-        type:        'credit',
-        category:    'payment_received',
-        amount:      invoice.total_amount,
-        customer_id: invoice.customer_id || null,
-        reference:   invoice.invoice_number,
-        description: `Payment received for ${invoice.invoice_number}`,
         date:        new Date().toISOString().slice(0, 10),
+        type:        'credit',
+        amount:      Number(invoice.total_amount),
+        description: `Payment received for ${invoice.invoice_number}`,
+        category:    'payment_received',
+        customer_id: invoice.customer_id,
+        reference:   invoice.invoice_number,
       })
     }
+
     setUpdating(false)
     onRefresh()
   }
@@ -51,33 +59,50 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
     const doc      = new jsPDF()
     const customer = invoice.customers
 
-    doc.setFontSize(22)
+    doc.setFontSize(16)
     doc.setFont('helvetica', 'bold')
-    doc.text('INVOICE', 14, 22)
+    doc.text(dealer?.business_name || 'Showroom', 14, 18)
+
+    if (dealer?.gstin) {
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(80)
+      doc.text(`GSTIN: ${dealer.gstin}`, 14, 24)
+    }
+    if (dealer?.address) {
+      doc.setFontSize(9)
+      doc.text(dealer.address, 14, 29)
+    }
+
+    doc.setFontSize(20)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(0)
+    doc.text('TAX INVOICE', 14, 42)
 
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(80)
-    doc.text(`No: ${invoice.invoice_number}`, 14, 32)
-    doc.text(`Date: ${invoice.invoice_date}`, 14, 38)
-    if (invoice.due_date) doc.text(`Due: ${invoice.due_date}`, 14, 44)
+    doc.text(`No: ${invoice.invoice_number}`, 14, 50)
+    doc.text(`Date: ${invoice.invoice_date}`, 14, 56)
+    if (invoice.due_date) doc.text(`Due: ${invoice.due_date}`, 14, 62)
 
     if (customer) {
       doc.setTextColor(0)
       doc.setFont('helvetica', 'bold')
-      doc.text('Bill To:', 120, 32)
+      doc.text('Bill To:', 120, 50)
       doc.setFont('helvetica', 'normal')
-      doc.text(customer.name || '', 120, 38)
-      if (customer.phone) doc.text(customer.phone, 120, 44)
-      if (customer.email) doc.text(customer.email, 120, 50)
+      doc.text(customer.name || '', 120, 56)
+      if (customer.phone) doc.text(customer.phone, 120, 62)
+      if (customer.email) doc.text(customer.email, 120, 68)
     }
 
     autoTable(doc, {
-      startY: 60,
-      head: [['#', 'Description', 'Qty', 'Unit Price (Rs.)', 'Amount (Rs.)']],
+      startY: 76,
+      head: [['#', 'Description', 'HSN', 'Qty', 'Unit Price (₹)', 'Amount (₹)']],
       body: items.map((item, i) => [
         i + 1,
         item.description,
+        item.hsn_code || '8701',
         item.quantity,
         Number(item.unit_price).toLocaleString('en-IN'),
         Number(item.total).toLocaleString('en-IN'),
@@ -86,50 +111,59 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
       bodyStyles: { fontSize: 9 },
       columnStyles: {
         0: { cellWidth: 10 },
-        2: { halign: 'center' },
-        3: { halign: 'right' },
+        2: { cellWidth: 18, halign: 'center' },
+        3: { halign: 'center' },
         4: { halign: 'right' },
+        5: { halign: 'right' },
       },
     })
 
-    let y = doc.lastAutoTable.finalY + 10
+    const y = doc.lastAutoTable.finalY + 10
     doc.setFontSize(10)
     doc.setTextColor(0)
-    doc.setFont('helvetica', 'normal')
 
-    const row = (label, value, bold = false) => {
-      if (bold) doc.setFont('helvetica', 'bold')
-      else      doc.setFont('helvetica', 'normal')
-      doc.text(label, 120, y)
-      doc.text(value, 195, y, { align: 'right' })
-      y += 7
+    let cursorY = y
+    doc.text('Subtotal:', 130, cursorY)
+    doc.text(`Rs.${subtotal.toLocaleString('en-IN')}`, 195, cursorY, { align: 'right' })
+    cursorY += 7
+
+    if (discount > 0) {
+      doc.text('Discount:', 130, cursorY)
+      doc.text(`-Rs.${discount.toLocaleString('en-IN')}`, 195, cursorY, { align: 'right' })
+      cursorY += 7
     }
 
-    row('Subtotal:', `Rs.${subtotal.toLocaleString('en-IN')}`)
-    if (discount > 0) row('Discount:', `-Rs.${discount.toLocaleString('en-IN')}`)
-    row('Taxable Amount:', `Rs.${afterDiscount.toLocaleString('en-IN')}`)
+    if (invoice.is_interstate) {
+      doc.text(`IGST (${gstPercent}%):`, 130, cursorY)
+      doc.text(`Rs.${igst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, cursorY, { align: 'right' })
+      cursorY += 7
+    } else {
+      doc.text(`CGST (${(gstPercent / 2).toFixed(1)}%):`, 130, cursorY)
+      doc.text(`Rs.${cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, cursorY, { align: 'right' })
+      cursorY += 7
+      doc.text(`SGST (${(gstPercent / 2).toFixed(1)}%):`, 130, cursorY)
+      doc.text(`Rs.${sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, cursorY, { align: 'right' })
+      cursorY += 7
+    }
 
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(80)
-    doc.text(`CGST (${gstPercent / 2}%):`, 120, y)
-    doc.text(`Rs.${cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, y, { align: 'right' })
-    y += 6
-    doc.text(`SGST (${gstPercent / 2}%):`, 120, y)
-    doc.text(`Rs.${sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, y, { align: 'right' })
-    y += 8
-
-    doc.setTextColor(0)
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(11)
-    doc.text('Total:', 120, y)
-    doc.text(`Rs.${Number(invoice.total_amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, y, { align: 'right' })
-    y += 10
+    doc.text('Total:', 130, cursorY)
+    doc.text(`Rs.${Number(invoice.total_amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 195, cursorY, { align: 'right' })
+    cursorY += 10
+
+    if (dealer?.upi_id) {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(9)
+      doc.setTextColor(100)
+      doc.text(`Pay via UPI: ${dealer.upi_id}`, 14, cursorY)
+      cursorY += 6
+    }
 
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
     doc.setTextColor(100)
-    doc.text(`Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`, 14, y)
-    if (invoice.notes) doc.text(`Notes: ${invoice.notes}`, 14, y + 7)
+    doc.text(`Status: ${status.charAt(0).toUpperCase() + status.slice(1)}`, 14, cursorY)
+    if (invoice.notes) doc.text(`Notes: ${invoice.notes}`, 14, cursorY + 7)
 
     doc.save(`${invoice.invoice_number}.pdf`)
   }
@@ -188,6 +222,7 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
             <thead className="bg-gray-50 text-gray-500 text-left">
               <tr>
                 <th className="px-5 py-3 font-medium">Description</th>
+                <th className="px-5 py-3 font-medium">HSN</th>
                 <th className="px-5 py-3 font-medium text-center">Qty</th>
                 <th className="px-5 py-3 font-medium text-right">Unit Price</th>
                 <th className="px-5 py-3 font-medium text-right">Amount</th>
@@ -197,6 +232,7 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
               {items.map(item => (
                 <tr key={item.id}>
                   <td className="px-5 py-3 text-gray-900">{item.description}</td>
+                  <td className="px-5 py-3 text-gray-500 font-mono text-xs">{item.hsn_code || '8701'}</td>
                   <td className="px-5 py-3 text-center text-gray-600">{item.quantity}</td>
                   <td className="px-5 py-3 text-right text-gray-600">
                     ₹{Number(item.unit_price).toLocaleString('en-IN')}
@@ -220,26 +256,23 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
                 <span>-₹{discount.toLocaleString('en-IN')}</span>
               </div>
             )}
-            <div className="flex justify-between text-gray-600">
-              <span>Taxable Amount</span>
-              <span>₹{afterDiscount.toLocaleString('en-IN')}</span>
-            </div>
-
-            <div className="border-t border-gray-100 pt-2 space-y-1.5">
+            {invoice.is_interstate ? (
               <div className="flex justify-between text-gray-600">
-                <span>GST ({gstPercent}%)</span>
-                <span>₹{gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                <span>IGST ({gstPercent}%)</span>
+                <span>₹{igst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
               </div>
-              <div className="flex justify-between text-gray-400 text-xs pl-4">
-                <span>CGST ({gstPercent / 2}%)</span>
-                <span>₹{cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-              </div>
-              <div className="flex justify-between text-gray-400 text-xs pl-4">
-                <span>SGST ({gstPercent / 2}%)</span>
-                <span>₹{sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-
+            ) : (
+              <>
+                <div className="flex justify-between text-gray-600">
+                  <span>CGST ({(gstPercent / 2).toFixed(1)}%)</span>
+                  <span>₹{cgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>SGST ({(gstPercent / 2).toFixed(1)}%)</span>
+                  <span>₹{sgst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between font-bold text-gray-900 text-base pt-2 border-t border-gray-100">
               <span>Total</span>
               <span>₹{Number(invoice.total_amount).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
@@ -268,6 +301,11 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
           >
             {invoice.paid ? 'Mark as Unpaid' : 'Mark as Paid'}
           </button>
+          {!invoice.paid && (
+            <p className="text-xs text-gray-400 mt-2">
+              Marking as paid will automatically add a ledger entry.
+            </p>
+          )}
         </div>
       </div>
     </div>
