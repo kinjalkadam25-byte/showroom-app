@@ -117,17 +117,22 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
           '',
         ],
         [
-          `Po Date      : ${invoice.po_date || ''}        ${dealer?.state || ''}    ${dealer?.state_code || ''}`,
+          { content: `Po Date      : ${invoice.po_date || ''}`, styles: {} },
           `Place Of Supply     : ${invoice.place_of_supply || ''}`,
           '',
         ],
         [
-          `GSTIN        : ${dealer?.gstin || ''}`,
+          `                         ${dealer?.state || ''}          ${dealer?.state_code || ''}`,
           `Credit Date         : ${invoice.credit_date || ''}`,
           '',
         ],
         [
-          `FSSAI No     :`,
+          `GSTIN        : ${dealer?.gstin || ''}`,
+          '',
+          '',
+        ],
+        [
+          `FSSAI No     :               ${dealer?.state || ''}          ${dealer?.state_code || ''}`,
           '',
           '',
         ],
