@@ -49,54 +49,57 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     const doc       = new jsPDF()
     const pageWidth = doc.internal.pageSize.getWidth()
     const margin    = 10
-    const DARK_RED  = [180, 0, 0]
-    const TBL_GREY  = [220, 220, 220]  // table header fill — matches reference
-    const TBL_BLACK = [0, 0, 0]
+    const DARK_RED  = [211, 47, 47]     // #D32F2F — company name, "For" signatory
+    const MAROON    = [120, 20, 20]     // TAX INVOICE, CREDIT MEMO
+    const BEIGE     = [248, 235, 207]   // #F8EBCF — header strip + section headers
+    const TBL_GREY  = [248, 235, 207]   // section headers use same beige as reference
+    const TBL_BLACK = [30, 30, 30]      // near-black text throughout
+    const BORDER    = [180, 180, 180]   // thin grey borders
 
     const GRID = {
       theme: 'grid',
-      styles: { lineColor: [150, 150, 150], lineWidth: 0.2, fontSize: 8 },
+      styles: { lineColor: BORDER, lineWidth: 0.2, fontSize: 8 },
     }
 
-    // ---------- Header ----------
+    // ---------- Beige header strip ----------
+    doc.setFillColor(...BEIGE)
+    doc.rect(margin - 2, 8, pageWidth - (margin - 2) * 2, 28, 'F')
+
+    // VST Shakti logo — top left inside strip
+    doc.addImage(VST_LOGO_BASE64, 'PNG', margin, 9, 22, 22)
+
+    // Company name — bold dark red, centered
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(...DARK_RED)
-    doc.text(dealer?.business_name?.toUpperCase() || 'SHREE SAGAR AUTOMOBILES, SATARA', pageWidth / 2, 16, { align: 'center' })
+    doc.text(dealer?.business_name?.toUpperCase() || 'SHREE SAGAR AUTOMOBILES, SATARA', pageWidth / 2, 18, { align: 'center' })
 
-    doc.setFontSize(8)
+    // Address — small grey, centered
+    doc.setFontSize(7.5)
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(80)
-    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 22, { align: 'center' })
+    doc.setTextColor(80, 80, 80)
+    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 24, { align: 'center' })
 
-    // VST Shakti logo — top left
-    doc.addImage(VST_LOGO_BASE64, 'PNG', margin, 10, 22, 20)
-    // "VST SHAKTI" label below logo
-    doc.setFontSize(7)
+    // TAX INVOICE — dark maroon, centered
+    doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(...TBL_BLACK)
-    doc.text('VST SHAKTI', margin + 11, 32, { align: 'center' })
+    doc.setTextColor(...MAROON)
+    doc.text('TAX INVOICE', pageWidth / 2, 31, { align: 'center' })
 
-    // TAX INVOICE (center) — explicitly bold
-    doc.setFontSize(13)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0)
-    doc.text('TAX INVOICE', pageWidth / 2, 30, { align: 'center' })
-
-    // CREDIT MEMO (right) — explicitly bold
+    // CREDIT MEMO — dark maroon, right
     doc.setFontSize(9)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0)
-    doc.text('CREDIT MEMO', pageWidth - margin, 30, { align: 'right' })
+    doc.setTextColor(...MAROON)
+    doc.text('CREDIT MEMO', pageWidth - margin, 31, { align: 'right' })
 
-    doc.setDrawColor(150)
+    doc.setDrawColor(...BORDER)
     doc.line(margin, 33, pageWidth - margin, 33)
 
     // ---------- Invoice meta + transport details ----------
     const metaY = 37
     doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(0)
+    doc.setTextColor(...TBL_BLACK)
 
     // Left column
     const lx = margin
@@ -122,7 +125,7 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     doc.setFont('helvetica', 'bold')
     doc.text('Original Copy', pageWidth - margin, metaY, { align: 'right' })
 
-    doc.setDrawColor(150)
+    doc.setDrawColor(...BORDER)
     doc.line(margin, metaY + 25, pageWidth - margin, metaY + 25)
 
     // ---------- Receiver / Consignee details grid ----------
@@ -414,8 +417,8 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     })
 
     // Outer border
-    doc.setDrawColor(120)
-    doc.setLineWidth(0.3)
+    doc.setDrawColor(...BORDER)
+    doc.setLineWidth(0.4)
     doc.rect(margin - 2, 8, pageWidth - (margin - 2) * 2, doc.lastAutoTable.finalY - 6)
 
     doc.save(`${invoice.invoice_number}.pdf`)
