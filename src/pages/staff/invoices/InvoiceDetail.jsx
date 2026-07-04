@@ -40,7 +40,7 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
 
     // Auto-create a ledger entry when marking as paid (not when un-marking)
     if (!invoice.paid) {
-      await supabase.from('ledger_entries').insert({
+      const { error: ledgerError } = await supabase.from('ledger_entries').insert({
         date:        new Date().toISOString().slice(0, 10),
         type:        'credit',
         amount:      Number(invoice.total_amount),
@@ -49,6 +49,11 @@ export default function InvoiceDetail({ invoice, onBack, onEdit, onRefresh }) {
         customer_id: invoice.customer_id,
         reference:   invoice.invoice_number,
       })
+
+      if (ledgerError) {
+        console.error('Ledger sync failed:', ledgerError.message)
+        alert(`Invoice marked paid but ledger entry failed: ${ledgerError.message}`)
+      }
     }
 
     setUpdating(false)
