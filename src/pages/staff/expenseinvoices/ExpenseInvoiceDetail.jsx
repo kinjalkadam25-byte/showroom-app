@@ -3,6 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { amountToWordsINR } from '../../../lib/amountToWords'
+import { VST_LOGO_BASE64 } from '../../../lib/logoBase64'
 
 const GST_RATES = [5, 12, 18, 28]
 
@@ -48,6 +49,10 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     const doc       = new jsPDF()
     const pageWidth = doc.internal.pageSize.getWidth()
     const margin    = 10
+    const DARK_RED  = [180, 0, 0]
+    const TBL_GREY  = [220, 220, 220]  // table header fill — matches reference
+    const TBL_BLACK = [0, 0, 0]
+
     const GRID = {
       theme: 'grid',
       styles: { lineColor: [150, 150, 150], lineWidth: 0.2, fontSize: 8 },
@@ -56,7 +61,7 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     // ---------- Header ----------
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(180, 0, 0)
+    doc.setTextColor(...DARK_RED)
     doc.text(dealer?.business_name?.toUpperCase() || 'SHREE SAGAR AUTOMOBILES, SATARA', pageWidth / 2, 16, { align: 'center' })
 
     doc.setFontSize(8)
@@ -64,11 +69,13 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     doc.setTextColor(80)
     if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 22, { align: 'center' })
 
-    // VST Shakti logo placeholder text (left)
-    doc.setFontSize(9)
+    // VST Shakti logo — top left
+    doc.addImage(VST_LOGO_BASE64, 'PNG', margin, 10, 22, 20)
+    // "VST SHAKTI" label below logo
+    doc.setFontSize(7)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0)
-    doc.text('VST SHAKTI', margin, 30)
+    doc.setTextColor(...TBL_BLACK)
+    doc.text('VST SHAKTI', margin + 11, 32, { align: 'center' })
 
     // TAX INVOICE (center) — explicitly bold
     doc.setFontSize(13)
@@ -131,7 +138,7 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
         [`GSTIN     : ${VST.gstin}`, `State     :                State Code:`],
         [`FSSAI No  :              ${VST.state}    ${VST.stateCode}`, ''],
       ],
-      headStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 7 },
+      headStyles: { fillColor: TBL_GREY, textColor: TBL_BLACK, fontStyle: 'bold', fontSize: 7 },
       bodyStyles: { fontSize: 7 },
       columnStyles: {
         0: { cellWidth: (pageWidth - margin * 2) / 2 },
@@ -168,7 +175,7 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
         // Total row
         ['', 'Total', '', '', '', taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), '', taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), '', igstTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), netAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })],
       ],
-      headStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontSize: 7, fontStyle: 'bold' },
+      headStyles: { fillColor: TBL_GREY, textColor: TBL_BLACK, fontSize: 7, fontStyle: 'bold' },
       bodyStyles: { fontSize: 7 },
       columnStyles: {
         0: { cellWidth: 9, halign: 'center' },
@@ -220,36 +227,42 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     doc.setFontSize(6)
     doc.setFont('helvetica', 'bold')
 
-    // Helper: draw a cell (border + centered text)
-    function cell(x, y, w, h, text, align = 'center', bold = false) {
-      doc.rect(x, y, w, h)
+    // Helper: draw a cell with optional fill (border + centered text)
+    function cell(x, y, w, h, text, align = 'center', bold = false, fill = null) {
+      if (fill) {
+        doc.setFillColor(...fill)
+        doc.rect(x, y, w, h, 'FD') // fill + draw border
+      } else {
+        doc.rect(x, y, w, h)
+      }
       doc.setFont('helvetica', bold ? 'bold' : 'normal')
+      doc.setTextColor(...TBL_BLACK)
       const tx = align === 'center' ? x + w / 2 : align === 'right' ? x + w - 1 : x + 1
       const ty = y + h / 2 + 1.5
       doc.text(String(text), tx, ty, { align })
     }
 
-    // ---- Row 0: merged slab headers ----
+    // ---- Row 0: merged slab headers (grey fill) ----
     let cx = slabX
-    cell(cx, cursorY, labelW, rowH, 'Gst', 'center', true)
+    cell(cx, cursorY, labelW, rowH, 'Gst', 'center', true, TBL_GREY)
     cx += labelW
     ;[['5%', slabPairW], ['12%', slabPairW], ['18%', slabPairW], ['28%', slabPairW]].forEach(([label, w]) => {
-      cell(cx, cursorY, w, rowH, label, 'center', true)
+      cell(cx, cursorY, w, rowH, label, 'center', true, TBL_GREY)
       cx += w
     })
-    cell(cx, cursorY, totalColW, rowH, 'Total', 'center', true)
+    cell(cx, cursorY, totalColW, rowH, 'Total', 'center', true, TBL_GREY)
 
-    // ---- Row 1: S%/C% sub-headers ----
+    // ---- Row 1: S%/C% sub-headers (grey fill) ----
     const subY = cursorY + rowH
     cx = slabX
-    cell(cx, subY, labelW, subRowH, '', 'center', false)
+    cell(cx, subY, labelW, subRowH, '', 'center', false, TBL_GREY)
     cx += labelW
     ;[['S 2.5%', 'C 2.5%'], ['S 6%', 'C 6%'], ['S 9%', 'C 9%'], ['S 14%', 'C 14%']].forEach(([s, c]) => {
-      cell(cx, subY, halfW, subRowH, s, 'center', true)
-      cell(cx + halfW, subY, halfW, subRowH, c, 'center', true)
+      cell(cx, subY, halfW, subRowH, s, 'center', true, TBL_GREY)
+      cell(cx + halfW, subY, halfW, subRowH, c, 'center', true, TBL_GREY)
       cx += slabPairW
     })
-    cell(cx, subY, totalColW, subRowH, '', 'center', false)
+    cell(cx, subY, totalColW, subRowH, '', 'center', false, TBL_GREY)
 
     // ---- Helper to format slab value — max 2 decimal places ----
     function fmt(n) {
@@ -360,7 +373,7 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
       ...GRID,
       head: [['Declaration', 'TERMS & CONDITIONS :']],
       body: [[dealer?.declaration_text || '', dealer?.terms_text || '']],
-      headStyles: { fillColor: [220, 220, 220], textColor: [0, 0, 0], fontSize: 7, fontStyle: 'bold' },
+      headStyles: { fillColor: TBL_GREY, textColor: TBL_BLACK, fontSize: 7, fontStyle: 'bold' },
       bodyStyles: { fontSize: 7, minCellHeight: 18 },
       columnStyles: {
         0: { cellWidth: (pageWidth - margin * 2) / 2 },
@@ -385,7 +398,7 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
       didParseCell: (data) => {
         if (data.row.index === 0 && data.column.index === 1) {
           data.cell.styles.fontStyle = 'bold'
-          data.cell.styles.textColor = [180, 0, 0]
+          data.cell.styles.textColor = DARK_RED
         }
         if (data.row.index === 3) {
           data.cell.styles.minCellHeight = 16
