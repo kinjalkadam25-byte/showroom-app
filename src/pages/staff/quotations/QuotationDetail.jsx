@@ -3,6 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { amountToWordsINR } from '../../../lib/amountToWords'
+import { VST_LOGO_BASE64 } from '../../../lib/logoBase64'
 
 const STATUS_STYLES = {
   draft:    'bg-gray-100 text-gray-600',
@@ -58,28 +59,52 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
     const pageHeight = doc.internal.pageSize.getHeight()
     const margin = 10
 
-    const GRID = { theme: 'grid', styles: { lineColor: [150, 150, 150], lineWidth: 0.2 } }
+    // Colour constants — identical to expense invoice for visual consistency
+    const DARK_RED  = [211, 47, 47]    // #D32F2F — company name, signatory
+    const MAROON    = [120, 20, 20]    // QUOTATION title
+    const BEIGE     = [248, 235, 207]  // #F8EBCF — header strip + all section headers
+    const TBL_BLACK = [30, 30, 30]
+    const BORDER    = [180, 180, 180]
 
-    // ---------- Header ----------
-    doc.setFontSize(16)
+    const GRID = {
+      theme: 'grid',
+      styles: { lineColor: BORDER, lineWidth: 0.2 },
+    }
+
+    // ---------- Beige header strip ----------
+    doc.setFillColor(...BEIGE)
+    doc.rect(margin - 2, 8, pageWidth - (margin - 2) * 2, 28, 'F')
+
+    // VST Shakti logo — top left
+    doc.addImage(VST_LOGO_BASE64, 'PNG', margin, 9, 22, 22)
+
+    // Company name — dark red bold
+    doc.setFontSize(15)
     doc.setFont('helvetica', 'bold')
-    doc.text(dealer?.business_name || 'Business Name', pageWidth / 2, 17, { align: 'center' })
+    doc.setTextColor(...DARK_RED)
+    doc.text(dealer?.business_name?.toUpperCase() || 'Business Name', pageWidth / 2, 19, { align: 'center' })
 
-    doc.setFontSize(8)
+    // Address — small grey
+    doc.setFontSize(7.5)
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(80)
-    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 23, { align: 'center' })
+    doc.setTextColor(80, 80, 80)
+    if (dealer?.address) doc.text(dealer.address, pageWidth / 2, 25, { align: 'center' })
 
+    // QUOTATION — dark maroon
     doc.setFontSize(13)
     doc.setFont('helvetica', 'bold')
-    doc.setTextColor(0)
-    doc.text('QUOTATION', pageWidth / 2, 31, { align: 'center' })
+    doc.setTextColor(...MAROON)
+    doc.text('QUOTATION', pageWidth / 2, 32, { align: 'center' })
+
+    // Divider below strip
+    doc.setDrawColor(...BORDER)
+    doc.line(margin - 2, 37, pageWidth - margin + 2, 37)
 
     // ---------- Seller / Buyer details as a bordered grid table ----------
     // Explicit fixed rows so seller and buyer columns never look interchangeable —
     // each row is labeled inline, and a header row names whose details are whose.
     autoTable(doc, {
-      startY: 35,
+      startY: 40,
       ...GRID,
       head: [['Seller Details', 'Buyer Details']],
       body: [
@@ -90,8 +115,8 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         [`PAN No: ${dealer?.pan_no || ''}`, `PAN No: ${quotation.customer_pan || '—'}`],
         ['', `State: ${quotation.customer_state || '—'}   State Code: ${quotation.customer_state_code || '—'}`],
       ],
-      headStyles: { fillColor: [24, 24, 27], fontSize: 8 },
-      bodyStyles: { fontSize: 8 },
+      headStyles: { fillColor: BEIGE, textColor: TBL_BLACK, fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fontSize: 8, textColor: TBL_BLACK },
       columnStyles: { 0: { cellWidth: (pageWidth - margin * 2) / 2 }, 1: { cellWidth: (pageWidth - margin * 2) / 2 } },
       margin: { left: margin, right: margin },
     })
@@ -120,8 +145,8 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
           Number(item.total).toLocaleString('en-IN'),
         ]
       }),
-      headStyles: { fillColor: [24, 24, 27], fontSize: 7 },
-      bodyStyles: { fontSize: 7 },
+      headStyles: { fillColor: BEIGE, textColor: TBL_BLACK, fontSize: 7, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7, textColor: TBL_BLACK },
       columnStyles: {
         0: { cellWidth: 9, halign: 'center' },
         3: { halign: 'center' },
@@ -150,8 +175,8 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         ['SGST+CGST', ...GST_RATES.map(r => (slabs[r].cgst + slabs[r].sgst).toLocaleString('en-IN', { maximumFractionDigits: 0 })), (gstTotal - GST_RATES.reduce((s, r) => s + slabs[r].igst, 0)).toLocaleString('en-IN', { maximumFractionDigits: 0 })],
         ['IGST', ...GST_RATES.map(r => slabs[r].igst.toLocaleString('en-IN', { maximumFractionDigits: 0 })), GST_RATES.reduce((s, r) => s + slabs[r].igst, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })],
       ],
-      headStyles: { fillColor: [80, 80, 80], fontSize: 7 },
-      bodyStyles: { fontSize: 7 },
+      headStyles: { fillColor: BEIGE, textColor: TBL_BLACK, fontSize: 7, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7, textColor: TBL_BLACK },
       columnStyles: { 0: { cellWidth: 20 } },
       margin: { left: margin },
       tableWidth: halfWidth,
@@ -170,8 +195,8 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         ['Round Off', roundOff.toLocaleString('en-IN')],
         ['Net Amount', netAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })],
       ],
-      headStyles: { fillColor: [80, 80, 80], fontSize: 7 },
-      bodyStyles: { fontSize: 8 },
+      headStyles: { fillColor: BEIGE, textColor: TBL_BLACK, fontSize: 7, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8, textColor: TBL_BLACK },
       columnStyles: { 0: { fontStyle: 'normal' }, 1: { halign: 'right' } },
       didParseCell: (data) => {
         // Bold the Net Amount row to match the reference document's emphasis
@@ -202,8 +227,8 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
       ...GRID,
       head: [['Declaration', 'Terms & Conditions']],
       body: [[dealer?.declaration_text || '', dealer?.terms_text || '']],
-      headStyles: { fillColor: [80, 80, 80], fontSize: 8 },
-      bodyStyles: { fontSize: 7.5 },
+      headStyles: { fillColor: BEIGE, textColor: TBL_BLACK, fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5, textColor: TBL_BLACK },
       columnStyles: { 0: { cellWidth: (pageWidth - margin * 2) / 2 }, 1: { cellWidth: (pageWidth - margin * 2) / 2 } },
       margin: { left: margin, right: margin },
     })
@@ -220,14 +245,14 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         ['IFSC Code', dealer?.ifsc_code || ''],
         ['Account No', dealer?.account_no || ''],
       ],
-      headStyles: { fillColor: [80, 80, 80], fontSize: 8 },
-      bodyStyles: { fontSize: 7.5 },
+      headStyles: { fillColor: BEIGE, textColor: TBL_BLACK, fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5, textColor: TBL_BLACK },
       margin: { left: margin, right: margin },
     })
 
     cursorY = doc.lastAutoTable.finalY + 4
 
-    // ---------- Signatory row (bordered, matching reference's receiver/authorised split) ----------
+    // ---------- Signatory row ----------
     autoTable(doc, {
       startY: cursorY,
       ...GRID,
@@ -235,20 +260,26 @@ export default function QuotationDetail({ quotation, onBack, onEdit, onRefresh }
         ['Receiver Signatory', `For ${dealer?.business_name || ''}`],
         ['', 'Authorised Signatory'],
       ],
-      bodyStyles: { fontSize: 8, minCellHeight: 12 },
+      bodyStyles: { fontSize: 8, minCellHeight: 12, textColor: TBL_BLACK },
       columnStyles: {
         0: { cellWidth: (pageWidth - margin * 2) / 2, valign: 'bottom' },
         1: { cellWidth: (pageWidth - margin * 2) / 2, halign: 'center', valign: 'bottom' },
+      },
+      didParseCell: (data) => {
+        if (data.row.index === 0 && data.column.index === 1) {
+          data.cell.styles.fontStyle = 'bold'
+          data.cell.styles.textColor = DARK_RED
+        }
       },
       margin: { left: margin, right: margin },
     })
 
     cursorY = doc.lastAutoTable.finalY
 
-    // ---------- Outer page border, enclosing the whole document like the reference ----------
-    doc.setDrawColor(120)
-    doc.setLineWidth(0.3)
-    doc.rect(margin - 2, 10, pageWidth - (margin - 2) * 2, Math.min(cursorY + 4, pageHeight - 12) - 10)
+    // ---------- Outer page border ----------
+    doc.setDrawColor(...BORDER)
+    doc.setLineWidth(0.4)
+    doc.rect(margin - 2, 8, pageWidth - (margin - 2) * 2, Math.min(cursorY + 4, pageHeight - 12) - 8)
 
     doc.save(`${quotation.quotation_number}.pdf`)
   }
