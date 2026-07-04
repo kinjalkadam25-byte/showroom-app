@@ -96,42 +96,56 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     doc.setDrawColor(...BORDER)
     doc.line(margin - 2, 38, pageWidth - margin + 2, 38)
 
-    // ---------- Invoice meta + transport details ----------
-    const metaY = 43
-    doc.setFontSize(8)
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(...TBL_BLACK)
+    // ---------- Invoice meta — structured bordered grid ----------
+    autoTable(doc, {
+      startY: 40,
+      ...GRID,
+      body: [
+        [
+          { content: `Invoice No : ${invoice.invoice_number}`, styles: { fontStyle: 'bold' } },
+          `Transportation Mode : ${invoice.transportation_mode || ''}`,
+          { content: 'Original Copy', styles: { fontStyle: 'bold', halign: 'right' } },
+        ],
+        [
+          `Inv. Date    : ${invoice.invoice_date}`,
+          `Vehicle Number      :`,
+          '',
+        ],
+        [
+          `Po No        : ${invoice.po_no || ''}`,
+          `Date of Supply      : ${invoice.invoice_date}`,
+          '',
+        ],
+        [
+          `Po Date      : ${invoice.po_date || ''}        ${dealer?.state || ''}    ${dealer?.state_code || ''}`,
+          `Place Of Supply     : ${invoice.place_of_supply || ''}`,
+          '',
+        ],
+        [
+          `GSTIN        : ${dealer?.gstin || ''}`,
+          `Credit Date         : ${invoice.credit_date || ''}`,
+          '',
+        ],
+        [
+          `FSSAI No     :`,
+          '',
+          '',
+        ],
+      ],
+      bodyStyles: { fontSize: 8, cellPadding: 1.5 },
+      columnStyles: {
+        0: { cellWidth: 80 },
+        1: { cellWidth: 95 },
+        2: { cellWidth: 20, halign: 'right' },
+      },
+      margin: { left: margin, right: margin },
+    })
 
-    // Left column
-    const lx = margin
-    doc.text(`Invoice No  : ${invoice.invoice_number}`, lx, metaY)
-    doc.text(`Inv. Date    : ${invoice.invoice_date}`, lx, metaY + 5)
-    doc.text(`Po No        : ${invoice.po_no || ''}`, lx, metaY + 10)
-    doc.text(`Po Date      : ${invoice.po_date || ''}`, lx, metaY + 15)
-    doc.text(`GSTIN        : ${dealer?.gstin || ''}`, lx, metaY + 20)
-
-    // State / FSS AI line
-    doc.text(`${dealer?.state || ''}`, lx + 45, metaY + 15)
-    doc.text(`${dealer?.state_code || ''}`, lx + 68, metaY + 15)
-    doc.text(`FSSAI No :`, lx + 75, metaY + 20)
-
-    // Right column — transport details
-    const rx = 108
-    doc.text(`Transportation Mode : ${invoice.transportation_mode || ''}`, rx, metaY)
-    doc.text(`Vehicle Number      :`, rx, metaY + 5)
-    doc.text(`Date of Supply      : ${invoice.invoice_date}`, rx, metaY + 10)
-    doc.text(`Place Of Supply     : ${invoice.place_of_supply || ''}`, rx, metaY + 15)
-    doc.text(`Credit Date         : ${invoice.credit_date || ''}`, rx, metaY + 20)
-
-    doc.setFont('helvetica', 'bold')
-    doc.text('Original Copy', pageWidth - margin, metaY, { align: 'right' })
-
-    doc.setDrawColor(...BORDER)
-    doc.line(margin, metaY + 25, pageWidth - margin, metaY + 25)
+    const metaTableEndY = doc.lastAutoTable.finalY
 
     // ---------- Receiver / Consignee details grid ----------
     autoTable(doc, {
-      startY: metaY + 28,
+      startY: metaTableEndY + 3,
       ...GRID,
       head: [['Details of Receiver | Billed to:', 'Details of Consignee | Shipped to:']],
       body: [
@@ -247,26 +261,26 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     }
 
     // ---- Row 0: merged slab headers (grey fill) ----
-    let cx = slabX
-    cell(cx, cursorY, labelW, rowH, 'Gst', 'center', true, TBL_GREY)
-    cx += labelW
+    let rx = slabX
+    cell(rx, cursorY, labelW, rowH, 'Gst', 'center', true, TBL_GREY)
+    rx += labelW
     ;[['5%', slabPairW], ['12%', slabPairW], ['18%', slabPairW], ['28%', slabPairW]].forEach(([label, w]) => {
-      cell(cx, cursorY, w, rowH, label, 'center', true, TBL_GREY)
-      cx += w
+      cell(rx, cursorY, w, rowH, label, 'center', true, TBL_GREY)
+      rx += w
     })
-    cell(cx, cursorY, totalColW, rowH, 'Total', 'center', true, TBL_GREY)
+    cell(rx, cursorY, totalColW, rowH, 'Total', 'center', true, TBL_GREY)
 
     // ---- Row 1: S%/C% sub-headers (grey fill) ----
     const subY = cursorY + rowH
-    cx = slabX
-    cell(cx, subY, labelW, subRowH, '', 'center', false, TBL_GREY)
-    cx += labelW
+    rx = slabX
+    cell(rx, subY, labelW, subRowH, '', 'center', false, TBL_GREY)
+    rx += labelW
     ;[['S 2.5%', 'C 2.5%'], ['S 6%', 'C 6%'], ['S 9%', 'C 9%'], ['S 14%', 'C 14%']].forEach(([s, c]) => {
-      cell(cx, subY, halfW, subRowH, s, 'center', true, TBL_GREY)
-      cell(cx + halfW, subY, halfW, subRowH, c, 'center', true, TBL_GREY)
-      cx += slabPairW
+      cell(rx, subY, halfW, subRowH, s, 'center', true, TBL_GREY)
+      cell(rx + halfW, subY, halfW, subRowH, c, 'center', true, TBL_GREY)
+      rx += slabPairW
     })
-    cell(cx, subY, totalColW, subRowH, '', 'center', false, TBL_GREY)
+    cell(rx, subY, totalColW, subRowH, '', 'center', false, TBL_GREY)
 
     // ---- Helper to format slab value — max 2 decimal places ----
     function fmt(n) {
@@ -296,15 +310,15 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
 
     let dataY = subY + subRowH
     dataRows.forEach(row => {
-      cx = slabX
-      cell(cx, dataY, labelW, dataRowH, row.label, 'left', false)
-      cx += labelW
+      rx = slabX
+      cell(rx, dataY, labelW, dataRowH, row.label, 'left', false)
+      rx += labelW
       row.values.forEach(([s, c]) => {
-        cell(cx, dataY, halfW, dataRowH, s, 'center', false)
-        cell(cx + halfW, dataY, halfW, dataRowH, c, 'center', false)
-        cx += slabPairW
+        cell(rx, dataY, halfW, dataRowH, s, 'center', false)
+        cell(rx + halfW, dataY, halfW, dataRowH, c, 'center', false)
+        rx += slabPairW
       })
-      cell(cx, dataY, totalColW, dataRowH, row.total, 'center', false)
+      cell(rx, dataY, totalColW, dataRowH, row.total, 'center', false)
       dataY += dataRowH
     })
 
