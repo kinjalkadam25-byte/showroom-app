@@ -61,12 +61,12 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
       styles: { lineColor: BORDER, lineWidth: 0.2, fontSize: 8 },
     }
 
-    // ---------- Beige header strip ----------
+    // ---------- Beige header strip — covers logo + name + TAX INVOICE line only ----------
     doc.setFillColor(...BEIGE)
-    doc.rect(margin - 2, 8, pageWidth - (margin - 2) * 2, 28, 'F')
+    doc.rect(margin - 2, 8, pageWidth - (margin - 2) * 2, 30, 'F')
 
     // VST Shakti logo — top left inside strip
-    doc.addImage(VST_LOGO_BASE64, 'PNG', margin, 9, 22, 22)
+    doc.addImage(VST_LOGO_BASE64, 'PNG', margin, 9, 24, 24)
 
     // Company name — bold dark red, centered
     doc.setFontSize(14)
@@ -84,19 +84,20 @@ export default function ExpenseInvoiceDetail({ invoice, onBack, onEdit, onRefres
     doc.setFontSize(12)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(...MAROON)
-    doc.text('TAX INVOICE', pageWidth / 2, 31, { align: 'center' })
+    doc.text('TAX INVOICE', pageWidth / 2, 33, { align: 'center' })
 
-    // CREDIT MEMO — dark maroon, right
+    // CREDIT MEMO — dark maroon, right, same baseline as TAX INVOICE
     doc.setFontSize(9)
     doc.setFont('helvetica', 'bold')
     doc.setTextColor(...MAROON)
-    doc.text('CREDIT MEMO', pageWidth - margin, 31, { align: 'right' })
+    doc.text('CREDIT MEMO', pageWidth - margin, 33, { align: 'right' })
 
+    // Divider below header strip
     doc.setDrawColor(...BORDER)
-    doc.line(margin, 33, pageWidth - margin, 33)
+    doc.line(margin - 2, 38, pageWidth - margin + 2, 38)
 
     // ---------- Invoice meta + transport details ----------
-    const metaY = 37
+    const metaY = 43
     doc.setFontSize(8)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(...TBL_BLACK)
